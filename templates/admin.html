@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="p-3 bg-white rounded shadow-sm">
+      <h5>Add Person</h5>
+      <form method="post" enctype="multipart/form-data">
+        <div class="mb-2">
+          <label class="form-label">Admin PIN</label>
+          <input class="form-control" type="password" name="pin" placeholder="Enter PIN" required>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Full Name</label>
+          <input class="form-control" type="text" name="name" required>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Role</label>
+          <select class="form-select" name="role">
+            <option value="student">Student</option>
+            <option value="staff">Staff</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Class (for students)</label>
+          <input class="form-control" type="text" name="class_name" placeholder="e.g., 10A">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Face Image</label>
+          <input class="form-control" type="file" name="image" accept="image/*" required>
+        </div>
+        <button class="btn btn-primary w-100" type="submit">Add</button>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div class="p-3 bg-white rounded shadow-sm">
+      <h5>People (Students & Staff)</h5>
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead><tr><th>#</th><th>Name</th><th>Role</th><th>Class</th></tr></thead>
+          <tbody>
+            {% for p in people %}
+              <tr><td>{{ loop.index }}</td><td>{{ p.name }}</td><td>{{ p.role }}</td><td>{{ p.class_name }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="text-muted">Total: {{ people|length }}</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="p-4 bg-white rounded shadow-sm">
+    <h3 class="mb-3">Welcome</h3>
+    <p>Attendance window: <b>{{ window }}</b> ({{ tz }})</p>
+    <p>Use the <a href="{{ url_for('kiosk') }}">Kiosk</a> page on a phone/tablet to scan faces and mark attendance.</p>
+    <p>Admins can add new students/staff and manage records in the <a href="{{ url_for('admin') }}">Admin</a> page.</p>
+  </div>
+{% endblock %}

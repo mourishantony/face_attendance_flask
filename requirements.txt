@@ -1,0 +1,10 @@
+Flask==3.0.3
+Werkzeug==3.0.3
+deepface==0.0.93
+opencv-python==4.10.0.84
+numpy==1.26.4
+pandas==2.2.2
+APScheduler==3.10.4
+SQLAlchemy==2.0.32
+pytz==2024.1
+python-dotenv==1.0.1
