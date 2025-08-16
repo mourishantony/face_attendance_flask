@@ -1,12 +1,13 @@
 import os, json, io, csv
 from datetime import datetime, date, time
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
 from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 import pytz
 import numpy as np
+from functools import wraps
 
 from config import Config
 from models import db, Person, Attendance
@@ -22,7 +23,8 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
 
-# Time helpers
+# ------------------ Helpers ------------------
+
 def get_tz():
     return pytz.timezone(app.config["TIMEZONE"])
 
@@ -36,19 +38,18 @@ def within_attendance_window(now=None):
     return start <= now <= end
 
 def mark_absent_for_day(d: date):
-    # For all people, if no 'present' record exists for day d, add 'absent'
     people = Person.query.all()
     for p in people:
         present = Attendance.query.filter_by(person_id=p.id, date=d, status='present').first()
         existing_absent = Attendance.query.filter_by(person_id=p.id, date=d, status='absent').first()
         if not present and not existing_absent:
-            a = Attendance(person_id=p.id, date=d, status='absent', timestamp=datetime.utcnow(), source='scheduler')
+            a = Attendance(person_id=p.id, date=d, status='absent',
+                           timestamp=datetime.utcnow(), source='scheduler')
             db.session.add(a)
     db.session.commit()
 
 # Scheduler to auto mark absences at end time daily
 scheduler = BackgroundScheduler(timezone=app.config["TIMEZONE"])
-# Run 5 minutes after end time to catch late arrivals
 end_h, end_m = [int(x) for x in app.config["ATTEND_END"].split(":")]
 scheduler.add_job(
     func=lambda: mark_absent_for_day(datetime.now(get_tz()).date()),
@@ -58,18 +59,52 @@ scheduler.add_job(
 )
 scheduler.start()
 
+# ------------------ Auth Helpers ------------------
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get("logged_in"):
+            flash("Please log in first", "warning")
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated_function
+
 # ------------------ Routes ------------------
 
 @app.route("/")
 def index():
-    return render_template("index.html", window=f"{app.config['ATTEND_START']}–{app.config['ATTEND_END']}", tz=app.config['TIMEZONE'])
+    # If not logged in → show login page
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
+
+    # If logged in → show home page
+    return render_template("index.html",
+                           window=f"{app.config['ATTEND_START']}–{app.config['ATTEND_END']}",
+                           tz=app.config['TIMEZONE'])
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        pin = request.form.get("pin")
+        if pin == app.config["ADMIN_PIN"]:
+            session["logged_in"] = True
+            flash("Login successful", "success")
+            return redirect(url_for("index"))
+        else:
+            flash("Invalid PIN", "danger")
+    return render_template("login.html")
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    flash("Logged out", "info")
+    return redirect(url_for("login"))
 
 @app.route("/admin", methods=["GET", "POST"])
+@login_required
 def admin():
     if request.method == "POST":
-        if request.form.get("pin") != app.config["ADMIN_PIN"]:
-            flash("Invalid PIN", "danger")
-            return redirect(url_for("admin"))
         name = request.form.get("name", "").strip()
         role = request.form.get("role", "student").strip()
         class_name = request.form.get("class_name", "").strip() or None
@@ -89,13 +124,16 @@ def admin():
             flash("Name already exists.", "warning")
             return redirect(url_for("admin"))
 
-        p = Person(name=name, role=role, class_name=class_name, embedding=serialize_embedding(emb))
+        p = Person(name=name, role=role, class_name=class_name,
+                   embedding=serialize_embedding(emb))
         db.session.add(p)
         db.session.commit()
         flash(f"Added {name} ({role}).", "success")
         return redirect(url_for("admin"))
 
-    people = Person.query.order_by(Person.role.desc(), Person.class_name.asc(), Person.name.asc()).all()
+    people = Person.query.order_by(Person.role.desc(),
+                                   Person.class_name.asc(),
+                                   Person.name.asc()).all()
     return render_template("admin.html", people=people)
 
 @app.route("/api/recognize", methods=["POST"])
@@ -122,41 +160,44 @@ def api_recognize():
     if person is None:
         return jsonify({"ok": True, "match": None, "distance": dist})
 
-    # Check time window
     tz_now = datetime.now(get_tz())
     if within_attendance_window(tz_now):
-        # Mark present if not already today
         today = tz_now.date()
-        already = Attendance.query.filter_by(person_id=person.id, date=today, status='present').first()
+        already = Attendance.query.filter_by(person_id=person.id,
+                                             date=today, status='present').first()
         if not already:
-            rec = Attendance(person_id=person.id, date=today, timestamp=datetime.utcnow(), status='present', source='kiosk')
+            rec = Attendance(person_id=person.id, date=today,
+                             timestamp=datetime.utcnow(),
+                             status='present', source='kiosk')
             db.session.add(rec)
             db.session.commit()
 
     return jsonify({
         "ok": True,
-        "match": {"id": person.id, "name": person.name, "role": person.role, "class_name": person.class_name},
+        "match": {"id": person.id, "name": person.name,
+                  "role": person.role, "class_name": person.class_name},
         "distance": dist,
         "within_window": within_attendance_window(tz_now),
     })
 
 @app.route("/report")
+@login_required
 def report():
-    # Report for a given date (default today)
     d_str = request.args.get("date")
     if d_str:
         d = datetime.strptime(d_str, "%Y-%m-%d").date()
     else:
         d = datetime.now(get_tz()).date()
 
-    # Ensure absents are represented
     mark_absent_for_day(d)
 
-    # Build CSV in memory
-    people = Person.query.order_by(Person.role.desc(), Person.class_name.asc(), Person.name.asc()).all()
+    people = Person.query.order_by(Person.role.desc(),
+                                   Person.class_name.asc(),
+                                   Person.name.asc()).all()
     rows = [("Date", "Name", "Role", "Class", "Status", "Marked At (UTC)")]
     for p in people:
-        rec = Attendance.query.filter_by(person_id=p.id, date=d).order_by(Attendance.timestamp.asc()).first()
+        rec = Attendance.query.filter_by(person_id=p.id, date=d)\
+                              .order_by(Attendance.timestamp.asc()).first()
         status = rec.status if rec else "absent"
         ts = rec.timestamp.isoformat() if rec else ""
         rows.append((d.isoformat(), p.name, p.role, p.class_name or "", status, ts))
@@ -165,14 +206,17 @@ def report():
     writer = csv.writer(mem)
     writer.writerows(rows)
     mem.seek(0)
-    return send_file(io.BytesIO(mem.getvalue().encode("utf-8")), as_attachment=True, download_name=f"attendance_{d.isoformat()}.csv", mimetype="text/csv")
+    return send_file(io.BytesIO(mem.getvalue().encode("utf-8")),
+                     as_attachment=True,
+                     download_name=f"attendance_{d.isoformat()}.csv",
+                     mimetype="text/csv")
 
 @app.route("/kiosk")
 def kiosk():
-    # Camera page for phones/tablets
-    return render_template("kiosk.html", window=f"{app.config['ATTEND_START']}–{app.config['ATTEND_END']}", tz=app.config['TIMEZONE'])
+    return render_template("kiosk.html",
+                           window=f"{app.config['ATTEND_START']}–{app.config['ATTEND_END']}",
+                           tz=app.config['TIMEZONE'])
 
-# Health
 @app.route("/health")
 def health():
     return {"ok": True}

@@ -7,5 +7,5 @@ class Config:
     TIMEZONE = os.getenv("TIMEZONE", "Asia/Kolkata")
     ATTEND_START = os.getenv("ATTEND_START", "16:00")
     ATTEND_END = os.getenv("ATTEND_END", "21:00")
-    ADMIN_PIN = os.getenv("ADMIN_PIN", "1234")
+    ADMIN_PIN = os.getenv("ADMIN_PIN", "1827")
 
