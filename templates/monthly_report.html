@@ -1,52 +1,527 @@
-{% extends "base.html" %}
-{% block content %}
-<div class="container mt-4">
-  <h2>Download Monthly Attendance Report</h2>
-  <form method="POST">
-    <div class="form-group">
-      <label for="report_type">Report Type</label>
-      <select name="report_type" class="form-control" id="report_type" required>
-        <option value="class">Class</option>
-        <option value="staff">Staff</option>
-      </select>
-    </div>
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Face Attendance - Download Report</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.1/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #6366f1;
+            --secondary-color: #8b5cf6;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --dark-color: #1f2937;
+            --light-color: #f8fafc;
+            --border-radius: 12px;
+            --box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --box-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
 
-    <div class="form-group" id="class_group">
-      <label for="class_name">Class</label>
-      <select name="class_name" class="form-control">
-        {% for c in classes %}
-        <option value="{{c}}">{{c}}</option>
-        {% endfor %}
-      </select>
-    </div>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
 
-    <div class="form-group">
-      <label for="month">Month</label>
-      <select name="month" class="form-control">
-        {% for m in range(1,13) %}
-        <option value="{{m}}">{{m}}</option>
-        {% endfor %}
-      </select>
-    </div>
+        .navbar {
+            background: rgba(255, 255, 255, 0.95) !important;
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: var(--box-shadow);
+        }
 
-    <div class="form-group">
-      <label for="year">Year</label>
-      <input type="number" name="year" class="form-control" value="{{ current_year }}" required>
-    </div>
+        .navbar-brand {
+            font-weight: 700;
+            color: var(--primary-color) !important;
+            font-size: 1.5rem;
+        }
 
-    <button type="submit" class="btn btn-primary mt-3">Download CSV</button>
-  </form>
-</div>
+        .nav-link {
+            color: var(--dark-color) !important;
+            font-weight: 500;
+            padding: 0.5rem 1rem !important;
+            margin: 0 0.25rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
 
-<script>
-  // Hide/Show class dropdown based on selection
-  document.getElementById("report_type").addEventListener("change", function () {
-    const classGroup = document.getElementById("class_group");
-    if (this.value === "staff") {
-      classGroup.style.display = "none";
-    } else {
-      classGroup.style.display = "block";
-    }
-  });
-</script>
-{% endblock %}
+        .nav-link:hover, .nav-link.active {
+            background-color: var(--primary-color);
+            color: white !important;
+            transform: translateY(-1px);
+        }
+
+        .navbar-toggler {
+            border: none;
+            padding: 0.25rem 0.5rem;
+        }
+
+        .navbar-toggler:focus {
+            box-shadow: none;
+        }
+
+        @media (max-width: 767px) {
+            .navbar-nav {
+                background: rgba(255, 255, 255, 0.98);
+                border-radius: 10px;
+                padding: 1rem;
+                margin-top: 1rem;
+                box-shadow: var(--box-shadow);
+            }
+            
+            .nav-link {
+                margin: 0.25rem 0;
+                text-align: center;
+            }
+        }
+
+        .main-container {
+            max-width: 600px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .report-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow-lg);
+            padding: 2rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .card-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .card-title {
+            color: var(--dark-color);
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .card-subtitle {
+            color: #6b7280;
+            font-size: 1rem;
+            font-weight: 400;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            font-weight: 600;
+            color: var(--dark-color);
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-control, .form-select {
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background-color: #ffffff;
+        }
+
+        .form-control:focus, .form-select:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+            outline: none;
+        }
+
+        .btn-download {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            border: none;
+            border-radius: 10px;
+            padding: 1rem 2rem;
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: white;
+            width: 100%;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-download:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--box-shadow-lg);
+            background: linear-gradient(135deg, #5856eb 0%, #7c3aed 100%);
+        }
+
+        .btn-download:active {
+            transform: translateY(0);
+        }
+
+        .icon-wrapper {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            border-radius: 50%;
+            margin-bottom: 1rem;
+        }
+
+        .alert {
+            border-radius: 10px;
+            border: none;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1rem;
+        }
+
+        .alert-success {
+            background-color: rgba(16, 185, 129, 0.1);
+            color: #065f46;
+            border-left: 4px solid var(--success-color);
+        }
+
+        .alert-danger {
+            background-color: rgba(239, 68, 68, 0.1);
+            color: #991b1b;
+            border-left: 4px solid var(--danger-color);
+        }
+
+        .alert-warning {
+            background-color: rgba(245, 158, 11, 0.1);
+            color: #92400e;
+            border-left: 4px solid var(--warning-color);
+        }
+
+        .form-floating {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-floating .form-control, 
+        .form-floating .form-select {
+            height: auto;
+            min-height: 58px;
+            padding: 1rem 0.75rem 0.25rem 0.75rem;
+        }
+
+        .form-floating label {
+            padding: 1rem 0.75rem;
+            color: #6b7280;
+            font-size: 0.875rem;
+        }
+
+        .mobile-nav {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                margin: 1rem auto;
+                padding: 0 0.75rem;
+            }
+
+            .report-card {
+                padding: 1.5rem;
+                margin: 0.5rem;
+            }
+
+            .card-title {
+                font-size: 1.5rem;
+            }
+
+            .btn-download {
+                padding: 0.875rem 1.5rem;
+                font-size: 1rem;
+            }
+
+            .icon-wrapper {
+                width: 50px;
+                height: 50px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .report-card {
+                padding: 1rem;
+            }
+
+            .card-title {
+                font-size: 1.25rem;
+            }
+        }
+
+        .loading-spinner {
+            display: none;
+        }
+
+        .btn-download.loading .loading-spinner {
+            display: inline-block;
+            margin-right: 0.5rem;
+        }
+
+        .btn-download.loading .btn-text {
+            display: none;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .slide-down {
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; max-height: 0; }
+            to { opacity: 1; max-height: 200px; }
+        }
+
+        .slide-up {
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 1; max-height: 200px; }
+            to { opacity: 0; max-height: 0; }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-md navbar-light fixed-top">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}">
+                <i class="bi bi-camera-fill me-2"></i>
+                Face Attendance
+            </a>
+            
+            <!-- Mobile hamburger button -->
+            <button class="navbar-toggler d-md-none" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <!-- Navigation menu -->
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <div class="navbar-nav ms-auto">
+                    <a class="nav-link" href="{{ url_for('kiosk') }}">
+                        <i class="bi bi-tablet me-1"></i>Kiosk
+                    </a>
+                    <a class="nav-link" href="{{ url_for('admin') }}">
+                        <i class="bi bi-gear me-1"></i>Admin
+                    </a>
+                    <a class="nav-link active" href="{{ url_for('monthly_report') }}">
+                        <i class="bi bi-download me-1"></i>Reports
+                    </a>
+                    <a class="nav-link" href="{{ url_for('logout') }}">
+                        <i class="bi bi-box-arrow-right me-1"></i>Logout
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main style="padding-top: 100px;">
+        <!-- Flash Messages -->
+        <div class="container">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="mt-2" id="flash-messages">
+                        {% for category, msg in messages %}
+                            <div class="alert alert-{{ category }} fade-in">
+                                <i class="bi bi-{% if category == 'success' %}check-circle{% else %}exclamation-triangle{% endif %} me-2"></i>
+                                {{ msg }}
+                                <button type="button" class="btn-close float-end" data-bs-dismiss="alert"></button>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+        </div>
+
+        <div class="main-container">
+            <div class="report-card fade-in">
+                <div class="card-header">
+                    <div class="icon-wrapper mx-auto">
+                        <i class="bi bi-file-earmark-spreadsheet text-white" style="font-size: 1.5rem;"></i>
+                    </div>
+                    <h2 class="card-title">Download Attendance Report</h2>
+                    <p class="card-subtitle">Generate and download monthly attendance reports in CSV format</p>
+                </div>
+
+                <form method="POST" id="reportForm">
+                    <div class="form-floating">
+                        <select name="report_type" class="form-select" id="report_type" required>
+                            <option value="class" selected>Class Attendance</option>
+                            <option value="staff">Staff Attendance</option>
+                        </select>
+                        <label for="report_type">
+                            <i class="bi bi-folder me-1"></i>Report Type
+                        </label>
+                    </div>
+
+                    <div class="form-floating slide-down" id="class_group">
+                        <select name="class_name" class="form-select" id="class_name">
+                            {% for c in classes %}
+                            <option value="{{c}}">{{c}}</option>
+                            {% endfor %}
+                        </select>
+                        <label for="class_name">
+                            <i class="bi bi-people me-1"></i>Select Class
+                        </label>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-floating">
+                                <select name="month" class="form-select" id="month" required>
+                                    {% for m in range(1,13) %}
+                                    <option value="{{m}}">
+                                        {% if m == 1 %}January
+                                        {% elif m == 2 %}February
+                                        {% elif m == 3 %}March
+                                        {% elif m == 4 %}April
+                                        {% elif m == 5 %}May
+                                        {% elif m == 6 %}June
+                                        {% elif m == 7 %}July
+                                        {% elif m == 8 %}August
+                                        {% elif m == 9 %}September
+                                        {% elif m == 10 %}October
+                                        {% elif m == 11 %}November
+                                        {% elif m == 12 %}December
+                                        {% endif %}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <label for="month">
+                                    <i class="bi bi-calendar-month me-1"></i>Month
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-floating">
+                                <input type="number" name="year" class="form-control" id="year" value="{{ current_year }}" min="2020" max="2030" required>
+                                <label for="year">
+                                    <i class="bi bi-calendar4 me-1"></i>Year
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-download mt-4">
+                        <span class="spinner-border spinner-border-sm loading-spinner" role="status" aria-hidden="true"></span>
+                        <span class="btn-text">
+                            <i class="bi bi-download me-2"></i>
+                            Download CSV Report
+                        </span>
+                        <span class="loading-text" style="display: none;">
+                            Generating Report...
+                        </span>
+                    </button>
+                </form>
+
+                <!-- Additional Info Card -->
+                <div class="mt-4 p-3" style="background-color: rgba(99, 102, 241, 0.1); border-radius: 10px; border-left: 4px solid var(--primary-color);">
+                    <div class="d-flex align-items-start">
+                        <i class="bi bi-info-circle text-primary me-2 mt-1"></i>
+                        <div>
+                            <h6 class="mb-1 text-primary">Report Information</h6>
+                            <small class="text-muted">
+                                The CSV file will include attendance data for the selected period. 
+                                Class reports show student attendance, while staff reports show employee attendance records.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Set current month as default
+        const currentMonth = new Date().getMonth() + 1;
+        document.getElementById('month').value = currentMonth;
+
+        // Hide/Show class dropdown based on selection with animation
+        document.getElementById("report_type").addEventListener("change", function () {
+            const classGroup = document.getElementById("class_group");
+            const classSelect = document.getElementById("class_name");
+            
+            if (this.value === "staff") {
+                classGroup.classList.remove("slide-down");
+                classGroup.classList.add("slide-up");
+                setTimeout(() => {
+                    classGroup.style.display = "none";
+                    classSelect.removeAttribute("required");
+                }, 300);
+            } else {
+                classGroup.style.display = "block";
+                classGroup.classList.remove("slide-up");
+                classGroup.classList.add("slide-down");
+                classSelect.setAttribute("required", "required");
+            }
+        });
+
+        // Form submission with loading state
+        document.getElementById("reportForm").addEventListener("submit", function(e) {
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const btnText = submitBtn.querySelector('.btn-text');
+            const loadingText = submitBtn.querySelector('.loading-text');
+            
+            // Add loading state
+            submitBtn.classList.add('loading');
+            submitBtn.disabled = true;
+            btnText.style.display = 'none';
+            loadingText.style.display = 'inline';
+            
+            // Remove loading state after 3 seconds (adjust based on your server response time)
+            setTimeout(() => {
+                submitBtn.classList.remove('loading');
+                submitBtn.disabled = false;
+                btnText.style.display = 'inline';
+                loadingText.style.display = 'none';
+            }, 3000);
+        });
+
+        // Simulate flash messages (replace with actual server-side flash messages)
+        function showFlashMessage(type, message) {
+            const flashContainer = document.getElementById('flash-messages');
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} fade-in`;
+            alertDiv.innerHTML = `
+                <i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-triangle'} me-2"></i>
+                ${message}
+                <button type="button" class="btn-close float-end" data-bs-dismiss="alert"></button>
+            `;
+            flashContainer.appendChild(alertDiv);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+
+        // Enhanced form validation
+        document.querySelectorAll('.form-control, .form-select').forEach(input => {
+            input.addEventListener('blur', function() {
+                if (this.hasAttribute('required') && !this.value) {
+                    this.classList.add('is-invalid');
+                } else {
+                    this.classList.remove('is-invalid');
+                    this.classList.add('is-valid');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

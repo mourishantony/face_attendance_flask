@@ -350,14 +350,23 @@
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark">
+    <nav class="navbar navbar-expand-lg navbar-dark app-header">
         <div class="container">
             <a class="navbar-brand" href="#">
-                <i class="fas fa-desktop me-2"></i>Kiosk Mode
+                <i class="fas fa-user-check me-2"></i>Face Attendance
             </a>
             <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="/" style="color: rgba(255,255,255,0.8);">
-                    <i class="fas fa-home me-1"></i>Home
+                <a class="nav-link" href="{{ url_for('kiosk') }}">
+                    <i class="fas fa-desktop me-1"></i><span class="d-none d-sm-inline">Kiosk</span>
+                </a>
+                <a class="nav-link" href="{{ url_for('admin') }}">
+                    <i class="fas fa-cog me-1"></i><span class="d-none d-sm-inline">Admin</span>
+                </a>
+                <a class="nav-link" href="{{ url_for('monthly_report') }}">
+                    <i class="fas fa-download me-1"></i><span class="d-none d-sm-inline">Reports</span>
+                </a>
+                <a class="nav-link" href="{{ url_for('logout') }}">
+                    <i class="fas fa-sign-out-alt me-1"></i><span class="d-none d-sm-inline">Logout</span>
                 </a>
             </div>
         </div>
