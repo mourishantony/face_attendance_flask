@@ -266,9 +266,9 @@
                 <i class="fas fa-user-check me-2"></i>Face Attendance System
             </a>
             <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="#"><i class="fas fa-desktop me-1"></i>Kiosk</a>
-                <a class="nav-link" href="#"><i class="fas fa-cog me-1"></i>Admin</a>
-                <a class="nav-link" href="#"><i class="fas fa-download me-1"></i>Reports</a>
+                <a class="nav-link" href="{{ url_for('kiosk') }}"><i class="fas fa-desktop me-1"></i>Kiosk</a>
+                <a class="nav-link" href="{{ url_for('admin') }}"><i class="fas fa-cog me-1"></i>Admin</a>
+                <a class="nav-link" href="{{ url_for('report') }}"><i class="fas fa-download me-1"></i>Reports</a>
             </div>
         </div>
     </nav>
@@ -277,13 +277,13 @@
         <div class="hero-section">
             <div class="hero-title floating">Welcome to Face Attendance</div>
             <div class="hero-subtitle">Smart, secure, and efficient attendance tracking powered by AI</div>
-            
+            <!--
             <div class="window-status">
                 <i class="fas fa-clock pulse"></i>
                 <span>Attendance Window: <strong>9:00 AM - 5:00 PM</strong> (IST)</span>
-            </div>
+            </div>-->
         </div>
-
+        <!--
         <div class="stats-grid">
             <div class="stat-item">
                 <div class="stat-number">156</div>
@@ -301,34 +301,40 @@
                 <div class="stat-number">4.2s</div>
                 <div class="stat-label">Avg Recognition Time</div>
             </div>
-        </div>
+        </div> -->
 
         <div class="feature-cards">
             <div class="feature-card kiosk">
                 <i class="fas fa-camera feature-icon"></i>
                 <h4>Quick Check-in</h4>
                 <p>Use the kiosk interface for fast face recognition and attendance marking. Perfect for tablets and mobile devices.</p>
-                <button class="btn btn-success mt-3">
+                <a href="{{ url_for('kiosk') }}">
+                  <button class="btn btn-success mt-3">
                     <i class="fas fa-play me-2"></i>Start Kiosk
-                </button>
+                  </button>
+                </a>
             </div>
 
             <div class="feature-card admin">
                 <i class="fas fa-users-cog feature-icon"></i>
                 <h4>Admin Panel</h4>
                 <p>Manage students, staff, classes, and view detailed attendance reports. Full administrative control at your fingertips.</p>
+                <a href="{{ url_for('admin') }}">
                 <button class="btn btn-danger mt-3">
                     <i class="fas fa-shield-alt me-2"></i>Admin Access
                 </button>
+                </a>
             </div>
 
             <div class="feature-card">
                 <i class="fas fa-chart-line feature-icon"></i>
                 <h4>Analytics & Reports</h4>
                 <p>Download comprehensive attendance reports and analyze patterns with detailed analytics and insights.</p>
-                <button class="btn btn-primary mt-3">
+                <a class="nav-link" href="{{ url_for('report') }}">
+                  <button class="btn btn-primary mt-3">
                     <i class="fas fa-download me-2"></i>Get Reports
-                </button>
+                  </button>
+                </a>
             </div>
         </div>
 
