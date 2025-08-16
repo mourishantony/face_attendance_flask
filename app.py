@@ -180,49 +180,83 @@ def api_recognize():
         "within_window": within_attendance_window(tz_now),
     })
 
-# ------------------ Monthly Report ------------------
+
+from calendar import monthrange
 @app.route("/monthly_report", methods=["GET", "POST"])
 @login_required
 def monthly_report():
     if request.method == "POST":
         class_name = request.form.get("class_name")
+        role = request.form.get("role")  # student or staff
         month = int(request.form.get("month"))
         year = int(request.form.get("year"))
 
-        # Query all students in that class
-        people = Person.query.filter_by(class_name=class_name).all()
+        num_days = monthrange(year, month)[1]
+        today = date.today()
+
+        # Query people
+        if role == "student":
+            people = Person.query.filter_by(class_name=class_name, role="student").all()
+        else:  # staff
+            people = Person.query.filter_by(role="staff").all()
 
         # Build CSV
-        rows = [("Date", "Name", "Class", "Status", "Marked At (UTC)")]
+        header = ["Name"] + [f"{day:02d}" for day in range(1, num_days + 1)]
+        rows = [header]
 
-        from calendar import monthrange
-        num_days = monthrange(year, month)[1]
+        for p in people:
+            row = [p.name]
+            for d in range(1, num_days + 1):
+                dt = date(year, month, d)
 
-        for d in range(1, num_days + 1):
-            dt = date(year, month, d)
-            mark_absent_for_day(dt)
+                if dt <= today:
+                    # only mark absents for past or current day
+                    mark_absent_for_day(dt)
 
-            for p in people:
-                rec = Attendance.query.filter_by(person_id=p.id, date=dt)\
-                                      .order_by(Attendance.timestamp.asc()).first()
-                status = rec.status if rec else "absent"
-                ts = rec.timestamp.isoformat() if rec else ""
-                rows.append((dt.isoformat(), p.name, p.class_name or "", status, ts))
+                    rec = (
+                        Attendance.query.filter_by(person_id=p.id, date=dt, status="present")
+                        .order_by(Attendance.timestamp.asc())
+                        .first()
+                    )
 
+                    if rec:
+                        local_ts = rec.timestamp.astimezone(get_tz())
+                        cell = f"Present ({local_ts.strftime('%H:%M:%S')})"
+                    else:
+                        cell = "Absent"
+                else:
+                    # leave future days blank
+                    cell = ""
+
+                row.append(cell)
+            rows.append(row)
+
+        # Return CSV
         mem = io.StringIO()
         writer = csv.writer(mem)
         writer.writerows(rows)
         mem.seek(0)
-        return send_file(io.BytesIO(mem.getvalue().encode("utf-8")),
-                         as_attachment=True,
-                         download_name=f"attendance_{class_name}_{year}-{month:02d}.csv",
-                         mimetype="text/csv")
 
-    # Pass current year explicitly
+        filename = (
+            f"attendance_{role}_{class_name}_{year}-{month:02d}.csv"
+            if role == "student"
+            else f"attendance_staff_{year}-{month:02d}.csv"
+        )
+
+        return send_file(
+            io.BytesIO(mem.getvalue().encode("utf-8")),
+            as_attachment=True,
+            download_name=filename,
+            mimetype="text/csv",
+        )
+
+    # Collect available classes for dropdown
     classes = db.session.query(Person.class_name).distinct().all()
-    return render_template("monthly_report.html",
-                           classes=[c[0] for c in classes if c[0]],
-                           current_year=datetime.now().year)# ------------------ Kiosk & Health ------------------
+    return render_template(
+        "monthly_report.html",
+        classes=[c[0] for c in classes if c[0]],
+        current_year=datetime.now().year,
+    )
 
 @app.route("/kiosk")
 def kiosk():

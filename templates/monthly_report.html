@@ -4,13 +4,22 @@
   <h2>Download Monthly Attendance Report</h2>
   <form method="POST">
     <div class="form-group">
+      <label for="report_type">Report Type</label>
+      <select name="report_type" class="form-control" id="report_type" required>
+        <option value="class">Class</option>
+        <option value="staff">Staff</option>
+      </select>
+    </div>
+
+    <div class="form-group" id="class_group">
       <label for="class_name">Class</label>
-      <select name="class_name" class="form-control" required>
+      <select name="class_name" class="form-control">
         {% for c in classes %}
         <option value="{{c}}">{{c}}</option>
         {% endfor %}
       </select>
     </div>
+
     <div class="form-group">
       <label for="month">Month</label>
       <select name="month" class="form-control">
@@ -19,11 +28,25 @@
         {% endfor %}
       </select>
     </div>
+
     <div class="form-group">
       <label for="year">Year</label>
       <input type="number" name="year" class="form-control" value="{{ current_year }}" required>
     </div>
+
     <button type="submit" class="btn btn-primary mt-3">Download CSV</button>
   </form>
 </div>
+
+<script>
+  // Hide/Show class dropdown based on selection
+  document.getElementById("report_type").addEventListener("change", function () {
+    const classGroup = document.getElementById("class_group");
+    if (this.value === "staff") {
+      classGroup.style.display = "none";
+    } else {
+      classGroup.style.display = "block";
+    }
+  });
+</script>
 {% endblock %}
