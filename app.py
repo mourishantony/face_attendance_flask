@@ -180,36 +180,49 @@ def api_recognize():
         "within_window": within_attendance_window(tz_now),
     })
 
-@app.route("/report")
+# ------------------ Monthly Report ------------------
+@app.route("/monthly_report", methods=["GET", "POST"])
 @login_required
-def report():
-    d_str = request.args.get("date")
-    if d_str:
-        d = datetime.strptime(d_str, "%Y-%m-%d").date()
-    else:
-        d = datetime.now(get_tz()).date()
+def monthly_report():
+    if request.method == "POST":
+        class_name = request.form.get("class_name")
+        month = int(request.form.get("month"))
+        year = int(request.form.get("year"))
 
-    mark_absent_for_day(d)
+        # Query all students in that class
+        people = Person.query.filter_by(class_name=class_name).all()
 
-    people = Person.query.order_by(Person.role.desc(),
-                                   Person.class_name.asc(),
-                                   Person.name.asc()).all()
-    rows = [("Date", "Name", "Role", "Class", "Status", "Marked At (UTC)")]
-    for p in people:
-        rec = Attendance.query.filter_by(person_id=p.id, date=d)\
-                              .order_by(Attendance.timestamp.asc()).first()
-        status = rec.status if rec else "absent"
-        ts = rec.timestamp.isoformat() if rec else ""
-        rows.append((d.isoformat(), p.name, p.role, p.class_name or "", status, ts))
+        # Build CSV
+        rows = [("Date", "Name", "Class", "Status", "Marked At (UTC)")]
 
-    mem = io.StringIO()
-    writer = csv.writer(mem)
-    writer.writerows(rows)
-    mem.seek(0)
-    return send_file(io.BytesIO(mem.getvalue().encode("utf-8")),
-                     as_attachment=True,
-                     download_name=f"attendance_{d.isoformat()}.csv",
-                     mimetype="text/csv")
+        from calendar import monthrange
+        num_days = monthrange(year, month)[1]
+
+        for d in range(1, num_days + 1):
+            dt = date(year, month, d)
+            mark_absent_for_day(dt)
+
+            for p in people:
+                rec = Attendance.query.filter_by(person_id=p.id, date=dt)\
+                                      .order_by(Attendance.timestamp.asc()).first()
+                status = rec.status if rec else "absent"
+                ts = rec.timestamp.isoformat() if rec else ""
+                rows.append((dt.isoformat(), p.name, p.class_name or "", status, ts))
+
+        mem = io.StringIO()
+        writer = csv.writer(mem)
+        writer.writerows(rows)
+        mem.seek(0)
+        return send_file(io.BytesIO(mem.getvalue().encode("utf-8")),
+                         as_attachment=True,
+                         download_name=f"attendance_{class_name}_{year}-{month:02d}.csv",
+                         mimetype="text/csv")
+
+    # Pass current year explicitly
+    classes = db.session.query(Person.class_name).distinct().all()
+    return render_template("monthly_report.html",
+                           classes=[c[0] for c in classes if c[0]],
+                           current_year=datetime.now().year)# ------------------ Kiosk & Health ------------------
 
 @app.route("/kiosk")
 def kiosk():
