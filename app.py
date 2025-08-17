@@ -38,13 +38,15 @@ def within_attendance_window(now=None):
     return start <= now <= end
 
 def mark_absent_for_day(d: date):
+    tz = get_tz()
+    now_local = datetime.now(tz)
     people = Person.query.all()
     for p in people:
         present = Attendance.query.filter_by(person_id=p.id, date=d, status='present').first()
         existing_absent = Attendance.query.filter_by(person_id=p.id, date=d, status='absent').first()
         if not present and not existing_absent:
             a = Attendance(person_id=p.id, date=d, status='absent',
-                           timestamp=datetime.utcnow(), source='scheduler')
+                           timestamp=now_local, source='scheduler')
             db.session.add(a)
     db.session.commit()
 
@@ -74,11 +76,8 @@ def login_required(f):
 
 @app.route("/")
 def index():
-    # If not logged in → show login page
     if not session.get("logged_in"):
         return redirect(url_for("login"))
-
-    # If logged in → show home page
     return render_template("index.html",
                            window=f"{app.config['ATTEND_START']}–{app.config['ATTEND_END']}",
                            tz=app.config['TIMEZONE'])
@@ -160,14 +159,15 @@ def api_recognize():
     if person is None:
         return jsonify({"ok": True, "match": None, "distance": dist})
 
-    tz_now = datetime.now(get_tz())
+    tz = get_tz()
+    tz_now = datetime.now(tz)
     if within_attendance_window(tz_now):
         today = tz_now.date()
         already = Attendance.query.filter_by(person_id=person.id,
                                              date=today, status='present').first()
         if not already:
             rec = Attendance(person_id=person.id, date=today,
-                             timestamp=datetime.utcnow(),
+                             timestamp=tz_now,
                              status='present', source='kiosk')
             db.session.add(rec)
             db.session.commit()
@@ -180,14 +180,14 @@ def api_recognize():
         "within_window": within_attendance_window(tz_now),
     })
 
-
 from calendar import monthrange
+
 @app.route("/monthly_report", methods=["GET", "POST"])
 @login_required
 def monthly_report():
     if request.method == "POST":
         class_name = request.form.get("class_name")
-        role = request.form.get("role")  # student or staff
+        role = request.form.get("role")
         month = int(request.form.get("month"))
         year = int(request.form.get("year"))
 
@@ -196,79 +196,72 @@ def monthly_report():
         now = datetime.now(tz)
         today = now.date()
 
-        # Parse attendance window times
         start_h, start_m = [int(x) for x in app.config["ATTEND_START"].split(":")]
         end_h, end_m = [int(x) for x in app.config["ATTEND_END"].split(":")]
         today_start = tz.localize(datetime.combine(today, time(start_h, start_m)))
         today_end = tz.localize(datetime.combine(today, time(end_h, end_m)))
 
-        # Query people
         if role == "student":
             people = Person.query.filter_by(class_name=class_name, role="student").all()
-        else:  # staff
+        else:
             people = Person.query.filter_by(role="staff").all()
 
-        # Build CSV
-        header = ["S.No", "Name"] + [f"{day:02d}" for day in range(1, num_days + 1)]
+        header = ["S.No", "Name"]
+        for d in range(1, num_days + 1):
+            header.append(f"{d:02d} Enter")
+            header.append(f"{d:02d} Exit")
         rows = [header]
 
         for idx, p in enumerate(people, start=1):
             row = [idx, p.name]
             for d in range(1, num_days + 1):
                 dt = date(year, month, d)
+                enter_time, exit_time = "", ""
 
                 if dt < today:
-                    # Past days → mark normally
                     mark_absent_for_day(dt)
-                    rec = (
+                    recs = (
                         Attendance.query.filter_by(person_id=p.id, date=dt, status="present")
                         .order_by(Attendance.timestamp.asc())
-                        .first()
+                        .all()
                     )
-                    if rec:
-                        local_ts = rec.timestamp.astimezone(get_tz())
-                        cell = f"Present ({local_ts.strftime('%H:%M:%S')})"
+                    if recs:
+                        enter_time = recs[0].timestamp.astimezone(tz).strftime("%H:%M:%S")
+                        exit_time = recs[-1].timestamp.astimezone(tz).strftime("%H:%M:%S")
                     else:
-                        cell = "Absent"
+                        enter_time = exit_time = "Absent"
 
                 elif dt == today:
                     if now < today_start:
-                        # Attendance window not started → leave blank
-                        cell = ""
+                        enter_time = exit_time = ""
                     elif today_start <= now <= today_end:
-                        # Window running → check if marked present, else blank
-                        rec = (
+                        recs = (
                             Attendance.query.filter_by(person_id=p.id, date=dt, status="present")
                             .order_by(Attendance.timestamp.asc())
-                            .first()
+                            .all()
                         )
-                        if rec:
-                            local_ts = rec.timestamp.astimezone(get_tz())
-                            cell = f"Present ({local_ts.strftime('%H:%M:%S')})"
+                        if recs:
+                            enter_time = recs[0].timestamp.astimezone(tz).strftime("%H:%M:%S")
+                            exit_time = recs[-1].timestamp.astimezone(tz).strftime("%H:%M:%S")
                         else:
-                            cell = ""
+                            enter_time = exit_time = ""
                     else:
-                        # After window closed → mark absent if not present
                         mark_absent_for_day(dt)
-                        rec = (
+                        recs = (
                             Attendance.query.filter_by(person_id=p.id, date=dt, status="present")
                             .order_by(Attendance.timestamp.asc())
-                            .first()
+                            .all()
                         )
-                        if rec:
-                            local_ts = rec.timestamp.astimezone(get_tz())
-                            cell = f"Present ({local_ts.strftime('%H:%M:%S')})"
+                        if recs:
+                            enter_time = recs[0].timestamp.astimezone(tz).strftime("%H:%M:%S")
+                            exit_time = recs[-1].timestamp.astimezone(tz).strftime("%H:%M:%S")
                         else:
-                            cell = "Absent"
-
+                            enter_time = exit_time = "Absent"
                 else:
-                    # Future days → leave blank
-                    cell = ""
-
-                row.append(cell)
+                    enter_time = exit_time = ""
+                row.extend([enter_time, exit_time])
             rows.append(row)
 
-        # Return CSV
         mem = io.StringIO()
         writer = csv.writer(mem)
         writer.writerows(rows)
@@ -287,7 +280,6 @@ def monthly_report():
             mimetype="text/csv",
         )
 
-    # Collect available classes for dropdown
     classes = db.session.query(Person.class_name).distinct().all()
     return render_template(
         "monthly_report.html",
