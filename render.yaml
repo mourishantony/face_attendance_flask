@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: my-flask-app
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: flask run --host=0.0.0.0 --port=$PORT
+    envVars:
+      - key: FLASK_APP
+        value: app.py   # change if your entry file is different
