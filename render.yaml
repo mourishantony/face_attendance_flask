@@ -4,6 +4,7 @@ services:
     env: python
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    runtime: python-3.11.9
     envVars:
       - key: FLASK_APP
         value: app.py
