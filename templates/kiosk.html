@@ -410,6 +410,10 @@
                     <i class="fas fa-play"></i>
                     <span>Start Camera</span>
                 </button>
+                <button id="flipBtn" class="control-btn btn-start" style="display:none" title="Flip Camera">
+                    <i class="fas fa-sync-alt"></i>
+                    <span>Flip</span>
+                </button>
             </div>
         </div>
 
@@ -431,6 +435,8 @@
         let stream = null;
         let cameraOn = false;
         let autoScanTimer = null;
+        let facingMode = 'user';  // 'user' = front, 'environment' = back
+        const flipBtn = document.getElementById('flipBtn');
 
         function updateCameraStatus(status, icon = 'fas fa-camera') {
             cameraStatus.innerHTML = `<i class="${icon}"></i><span>${status}</span>`;
@@ -441,11 +447,22 @@
             if (!cameraOn) startCamera(); else stopCamera();
         });
 
+        flipBtn.addEventListener('click', async () => {
+            facingMode = facingMode === 'user' ? 'environment' : 'user';
+            if (cameraOn) {
+                clearAutoScan();
+                if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+                video.srcObject = null;
+                cameraOn = false;
+                await startCamera();
+            }
+        });
+
         async function startCamera() {
             try {
                 updateCameraStatus('Initializing...', 'fas fa-spinner fa-spin');
                 const constraints = {
-                    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+                    video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
                     audio: false
                 };
                 stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -456,6 +473,7 @@
                     startBtn.innerHTML = '<i class="fas fa-stop"></i><span>Stop Camera</span>';
                     startBtn.classList.remove('btn-start');
                     startBtn.classList.add('btn-stop');
+                    flipBtn.style.display = '';
                     scheduleNextScan(800);
                 };
             } catch (e) {
@@ -479,6 +497,7 @@
             startBtn.innerHTML = '<i class="fas fa-play"></i><span>Start Camera</span>';
             startBtn.classList.remove('btn-stop');
             startBtn.classList.add('btn-start');
+            flipBtn.style.display = 'none';
         }
 
         function scheduleNextScan(delay) {

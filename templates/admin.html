@@ -500,6 +500,10 @@
                               id="regCamBtn" onclick="toggleRegCamera()">
                         <i class="fas fa-play me-1"></i>Start Camera
                       </button>
+                      <button type="button" class="btn btn-outline-secondary"
+                              id="regFlipBtn" onclick="flipRegCamera()" disabled title="Flip Camera">
+                        <i class="fas fa-sync-alt"></i>
+                      </button>
                       <button type="button" class="btn btn-success flex-grow-1"
                               id="captureBtn" onclick="startFrameCapture()" disabled>
                         <i class="fas fa-camera me-1"></i>Capture (30 frames)
@@ -677,22 +681,38 @@
       // ──────────────────────────────────────────────
       let regStream = null;
       let regCameraOn = false;
+      let regFacingMode = 'user';
 
       async function toggleRegCamera() {
         if (!regCameraOn) {
-          try {
-            regStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
-            document.getElementById('regVideo').srcObject = regStream;
-            regCameraOn = true;
-            document.getElementById('regCamBtn').innerHTML = '<i class="fas fa-stop me-1"></i>Stop Camera';
-            document.getElementById('regCamBtn').classList.replace('btn-secondary', 'btn-danger');
-            document.getElementById('captureBtn').disabled = false;
-          } catch (e) {
-            document.getElementById('capStatus').innerHTML =
-              `<div class="alert alert-danger"><i class="fas fa-exclamation-circle me-1"></i>Camera error: ${e.message}</div>`;
-          }
+          await startRegCamera();
         } else {
           stopRegCamera();
+        }
+      }
+
+      async function startRegCamera() {
+        try {
+          regStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: regFacingMode }, audio: false });
+          document.getElementById('regVideo').srcObject = regStream;
+          regCameraOn = true;
+          document.getElementById('regCamBtn').innerHTML = '<i class="fas fa-stop me-1"></i>Stop Camera';
+          document.getElementById('regCamBtn').classList.replace('btn-secondary', 'btn-danger');
+          document.getElementById('captureBtn').disabled = false;
+          document.getElementById('regFlipBtn').disabled = false;
+        } catch (e) {
+          document.getElementById('capStatus').innerHTML =
+            `<div class="alert alert-danger"><i class="fas fa-exclamation-circle me-1"></i>Camera error: ${e.message}</div>`;
+        }
+      }
+
+      async function flipRegCamera() {
+        regFacingMode = regFacingMode === 'user' ? 'environment' : 'user';
+        if (regCameraOn) {
+          if (regStream) { regStream.getTracks().forEach(t => t.stop()); regStream = null; }
+          document.getElementById('regVideo').srcObject = null;
+          regCameraOn = false;
+          await startRegCamera();
         }
       }
 
@@ -703,6 +723,7 @@
         document.getElementById('regCamBtn').innerHTML = '<i class="fas fa-play me-1"></i>Start Camera';
         document.getElementById('regCamBtn').classList.replace('btn-danger', 'btn-secondary');
         document.getElementById('captureBtn').disabled = true;
+        document.getElementById('regFlipBtn').disabled = true;
       }
 
       // ──────────────────────────────────────────────
