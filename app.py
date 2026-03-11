@@ -15,8 +15,8 @@ from models import (init_db, person_all, person_find_by_name, person_create,
                     person_distinct_classes, attendance_mark_present,
                     attendance_mark_absent, attendance_for_person_date,
                     settings_get, settings_save)
-from utils import (image_to_embedding, match_embedding, read_image_file,
-                   b64_to_image, average_embeddings)
+from utils import (image_to_embedding, batch_image_to_embeddings, match_embedding,
+                   read_image_file, b64_to_image, average_embeddings)
 
 load_dotenv()
 
@@ -248,13 +248,17 @@ def api_register_live():
     if person_find_by_name(name):
         return jsonify({"ok": False, "error": "Name already exists"}), 409
 
-    embeddings = []
+    imgs = []
     for frame_b64 in frames:
         try:
-            emb = image_to_embedding(b64_to_image(frame_b64))
-            embeddings.append(emb)
+            imgs.append(b64_to_image(frame_b64))
         except Exception:
             continue
+
+    try:
+        embeddings = batch_image_to_embeddings(imgs)
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 503
 
     if not embeddings:
         return jsonify({"ok": False, "error": "No face detected in any captured frame"}), 400

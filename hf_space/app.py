@@ -33,6 +33,14 @@ class EmbedResponse(BaseModel):
     error: str | None = None
 
 
+class BatchEmbedRequest(BaseModel):
+    images_b64: list[str]
+
+
+class BatchEmbedResponse(BaseModel):
+    results: list[EmbedResponse]
+
+
 def b64_to_array(b64: str) -> np.ndarray:
     if "," in b64:
         b64 = b64.split(",", 1)[1]
@@ -63,3 +71,26 @@ def embed(req: EmbedRequest):
         return EmbedResponse(ok=True, embedding=list(map(float, emb)))
     except Exception as e:
         return EmbedResponse(ok=False, error=str(e))
+
+
+def _embed_one(b64: str) -> EmbedResponse:
+    try:
+        img_arr = b64_to_array(b64)
+    except Exception as e:
+        return EmbedResponse(ok=False, error=f"Image decode error: {e}")
+    try:
+        rep = DeepFace.represent(img_path=img_arr, enforce_detection=True, **EMBED_MODEL)
+        if isinstance(rep, list):
+            emb = rep[0]["embedding"] if isinstance(rep[0], dict) else rep[0]
+        elif isinstance(rep, dict):
+            emb = rep["embedding"]
+        else:
+            raise RuntimeError("Unexpected format")
+        return EmbedResponse(ok=True, embedding=list(map(float, emb)))
+    except Exception as e:
+        return EmbedResponse(ok=False, error=str(e))
+
+
+@app.post("/embed_batch", response_model=BatchEmbedResponse)
+def embed_batch(req: BatchEmbedRequest):
+    return BatchEmbedResponse(results=[_embed_one(b64) for b64 in req.images_b64])

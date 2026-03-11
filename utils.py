@@ -4,11 +4,15 @@ from numpy.linalg import norm
 import requests
 
 
-def _hf_embed_url() -> str:
+def _hf_base_url() -> str:
     url = os.getenv("HF_EMBED_URL", "").rstrip("/")
     if not url:
         raise RuntimeError("HF_EMBED_URL is not set. Deploy hf_space/ to Hugging Face and set the env var.")
-    return url + "/embed"
+    return url
+
+
+def _hf_embed_url() -> str:
+    return _hf_base_url() + "/embed"
 
 
 def b64_to_image(b64_data: str) -> np.ndarray:
@@ -43,6 +47,26 @@ def image_to_embedding(img: np.ndarray) -> list:
     if not data.get("ok"):
         raise ValueError(data.get("error", "HF Space returned error"))
     return data["embedding"]
+
+
+def batch_image_to_embeddings(imgs: list) -> list:
+    """Send all images in a single HTTP call to HF Space /embed_batch."""
+    b64_list = [image_to_b64(img) for img in imgs]
+    try:
+        resp = requests.post(
+            _hf_base_url() + "/embed_batch",
+            json={"images_b64": b64_list},
+            timeout=120,
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        raise RuntimeError(f"HF Space unreachable: {e}")
+    results = resp.json().get("results", [])
+    embeddings = []
+    for r in results:
+        if r.get("ok") and r.get("embedding"):
+            embeddings.append(r["embedding"])
+    return embeddings
 
 
 def read_image_file(file_storage) -> np.ndarray:
