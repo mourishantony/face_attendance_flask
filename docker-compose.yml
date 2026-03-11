@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: attendance_mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  web:
+    build: .
+    container_name: attendance_web
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Override for local Docker — points to the mongo service above
+      MONGODB_URI: mongodb://mongo:27017/attendance
+    depends_on:
+      - mongo
+
+volumes:
+  mongo_data:

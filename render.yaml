@@ -1,10 +1,22 @@
 services:
   - type: web
     name: face-attendance-flask
-    env: python
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
-    runtime: python-3.11.9
+    env: docker
+    dockerfilePath: ./Dockerfile
     envVars:
-      - key: FLASK_APP
-        value: app.py
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_PIN
+        sync: false          # set manually in Render dashboard
+      - key: MONGODB_URI
+        sync: false          # paste Atlas connection string
+      - key: MONGODB_DB
+        value: attendance
+      - key: HF_EMBED_URL
+        sync: false          # paste your HF Space URL
+      - key: TIMEZONE
+        value: Asia/Kolkata
+      - key: ATTEND_START
+        value: "00:00"
+      - key: ATTEND_END
+        value: "21:00"

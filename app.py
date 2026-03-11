@@ -1,76 +1,99 @@
-import os, json, io, csv
+﻿import os, io, csv
+from calendar import monthrange
 from datetime import datetime, date, time
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
-from flask_sqlalchemy import SQLAlchemy
+from functools import wraps
+
+from flask import (Flask, render_template, request, redirect, url_for,
+                   flash, jsonify, send_file, session)
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 import pytz
-import numpy as np
-from functools import wraps
 
 from config import Config
-from models import db, Person, Attendance
-from utils import (image_to_embedding, match_embedding, read_image_file, 
-                   serialize_embedding, deserialize_embedding, b64_to_image)
+from models import (init_db, person_all, person_find_by_name, person_create,
+                    person_distinct_classes, attendance_mark_present,
+                    attendance_mark_absent, attendance_for_person_date,
+                    settings_get, settings_save)
+from utils import (image_to_embedding, match_embedding, read_image_file,
+                   b64_to_image, average_embeddings)
 
 load_dotenv()
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 app.config.from_object(Config)
-db.init_app(app)
 
-with app.app_context():
-    db.create_all()
+# Init MongoDB
+mongo_db = init_db(app)
 
-# ------------------ Helpers ------------------
+# ------------------ Live settings (DB overrides env defaults) ------------------
+
+def load_settings():
+    defaults = {
+        "TIMEZONE":     app.config["TIMEZONE"],
+        "ATTEND_START": app.config["ATTEND_START"],
+        "ATTEND_END":   app.config["ATTEND_END"],
+    }
+    return settings_get(defaults)
+
 
 def get_tz():
-    return pytz.timezone(app.config["TIMEZONE"])
+    return pytz.timezone(load_settings()["TIMEZONE"])
+
 
 def within_attendance_window(now=None):
-    tz = get_tz()
+    cfg = load_settings()
+    tz = pytz.timezone(cfg["TIMEZONE"])
     now = now or datetime.now(tz)
-    start_h, start_m = [int(x) for x in app.config["ATTEND_START"].split(":")]
-    end_h, end_m = [int(x) for x in app.config["ATTEND_END"].split(":")]
+    start_h, start_m = [int(x) for x in cfg["ATTEND_START"].split(":")]
+    end_h,   end_m   = [int(x) for x in cfg["ATTEND_END"].split(":")]
     start = tz.localize(datetime.combine(now.date(), time(start_h, start_m)))
-    end = tz.localize(datetime.combine(now.date(), time(end_h, end_m)))
+    end   = tz.localize(datetime.combine(now.date(), time(end_h,   end_m)))
     return start <= now <= end
+
 
 def mark_absent_for_day(d: date):
     tz = get_tz()
     now_local = datetime.now(tz)
-    people = Person.query.all()
-    for p in people:
-        present = Attendance.query.filter_by(person_id=p.id, date=d, status='present').first()
-        existing_absent = Attendance.query.filter_by(person_id=p.id, date=d, status='absent').first()
-        if not present and not existing_absent:
-            a = Attendance(person_id=p.id, date=d, status='absent',
-                           timestamp=now_local, source='scheduler')
-            db.session.add(a)
-    db.session.commit()
+    for p in person_all():
+        pid = str(p["_id"])
+        attendance_mark_absent(pid, d, now_local)
 
-# Scheduler to auto mark absences at end time daily
+
+# ------------------ Scheduler ------------------
+
 scheduler = BackgroundScheduler(timezone=app.config["TIMEZONE"])
-end_h, end_m = [int(x) for x in app.config["ATTEND_END"].split(":")]
-scheduler.add_job(
-    func=lambda: mark_absent_for_day(datetime.now(get_tz()).date()),
-    trigger=CronTrigger(hour=end_h, minute=(end_m + 5) % 60),
-    id="mark_absent_daily",
-    replace_existing=True,
-)
+
+def _scheduled_absent():
+    tz = get_tz()
+    mark_absent_for_day(datetime.now(tz).date())
+
+def _reschedule():
+    cfg = load_settings()
+    end_h, end_m = [int(x) for x in cfg["ATTEND_END"].split(":")]
+    trigger_min = (end_m + 5) % 60
+    trigger_hr  = end_h if (end_m + 5) < 60 else (end_h + 1) % 24
+    scheduler.add_job(
+        func=_scheduled_absent,
+        trigger=CronTrigger(hour=trigger_hr, minute=trigger_min,
+                            timezone=cfg["TIMEZONE"]),
+        id="mark_absent_daily",
+        replace_existing=True,
+    )
+
+_reschedule()
 scheduler.start()
 
-# ------------------ Auth Helpers ------------------
+# ------------------ Auth ------------------
 
 def login_required(f):
     @wraps(f)
-    def decorated_function(*args, **kwargs):
+    def decorated(*args, **kwargs):
         if not session.get("logged_in"):
             flash("Please log in first", "warning")
             return redirect(url_for("login"))
         return f(*args, **kwargs)
-    return decorated_function
+    return decorated
 
 # ------------------ Routes ------------------
 
@@ -78,21 +101,22 @@ def login_required(f):
 def index():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
+    cfg = load_settings()
     return render_template("index.html",
-                           window=f"{app.config['ATTEND_START']}–{app.config['ATTEND_END']}",
-                           tz=app.config['TIMEZONE'])
+                           window=f"{cfg['ATTEND_START']}–{cfg['ATTEND_END']}",
+                           tz=cfg["TIMEZONE"])
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        pin = request.form.get("pin")
-        if pin == app.config["ADMIN_PIN"]:
+        if request.form.get("pin") == app.config["ADMIN_PIN"]:
             session["logged_in"] = True
             flash("Login successful", "success")
             return redirect(url_for("index"))
-        else:
-            flash("Invalid PIN", "danger")
+        flash("Invalid PIN", "danger")
     return render_template("login.html")
+
 
 @app.route("/logout")
 def logout():
@@ -100,16 +124,45 @@ def logout():
     flash("Logged out", "info")
     return redirect(url_for("login"))
 
+
+# ------------------ Admin ------------------
+
 @app.route("/admin", methods=["GET", "POST"])
 @login_required
 def admin():
     if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        role = request.form.get("role", "student").strip()
+        action = request.form.get("action", "add_person")
+
+        # ── Save settings ──────────────────────────────────────────
+        if action == "save_settings":
+            timezone     = request.form.get("timezone", "").strip()
+            attend_start = request.form.get("attend_start", "").strip()
+            attend_end   = request.form.get("attend_end", "").strip()
+            if not timezone or not attend_start or not attend_end:
+                flash("All settings fields are required.", "danger")
+            else:
+                try:
+                    pytz.timezone(timezone)
+                except pytz.UnknownTimeZoneError:
+                    flash(f"Unknown timezone: {timezone}", "danger")
+                    return redirect(url_for("admin"))
+                settings_save(timezone, attend_start, attend_end)
+                _reschedule()
+                flash("Settings saved.", "success")
+            return redirect(url_for("admin"))
+
+        # ── Add person (upload image) ──────────────────────────────
+        name       = request.form.get("name", "").strip()
+        role       = request.form.get("role", "student").strip()
         class_name = request.form.get("class_name", "").strip() or None
-        image = request.files.get("image")
+        image      = request.files.get("image")
+
         if not name or not image:
             flash("Name and image are required.", "danger")
+            return redirect(url_for("admin"))
+
+        if person_find_by_name(name):
+            flash("Name already exists.", "warning")
             return redirect(url_for("admin"))
 
         try:
@@ -119,21 +172,16 @@ def admin():
             flash(f"Face not detected: {e}", "danger")
             return redirect(url_for("admin"))
 
-        if Person.query.filter_by(name=name).first():
-            flash("Name already exists.", "warning")
-            return redirect(url_for("admin"))
-
-        p = Person(name=name, role=role, class_name=class_name,
-                   embedding=serialize_embedding(emb))
-        db.session.add(p)
-        db.session.commit()
+        person_create(name, role, class_name, emb)
         flash(f"Added {name} ({role}).", "success")
         return redirect(url_for("admin"))
 
-    people = Person.query.order_by(Person.role.desc(),
-                                   Person.class_name.asc(),
-                                   Person.name.asc()).all()
-    return render_template("admin.html", people=people)
+    cfg = load_settings()
+    people = person_all()
+    return render_template("admin.html", people=people, settings=cfg)
+
+
+# ------------------ API: Kiosk recognition ------------------
 
 @app.route("/api/recognize", methods=["POST"])
 def api_recognize():
@@ -152,8 +200,8 @@ def api_recognize():
     except Exception as e:
         return jsonify({"ok": False, "error": f"Face not detected: {e}"}), 400
 
-    people = Person.query.all()
-    candidates = [(p, json.loads(p.embedding)) for p in people]
+    people = person_all()
+    candidates = [(p, p["embedding"]) for p in people]
     person, dist = match_embedding(emb, candidates, threshold=0.35)
 
     if person is None:
@@ -161,118 +209,149 @@ def api_recognize():
 
     tz = get_tz()
     tz_now = datetime.now(tz)
+    pid = str(person["_id"])
+
     if within_attendance_window(tz_now):
-        today = tz_now.date()
-        already = Attendance.query.filter_by(person_id=person.id,
-                                             date=today, status='present').first()
-        if not already:
-            rec = Attendance(person_id=person.id, date=today,
-                             timestamp=tz_now,
-                             status='present', source='kiosk')
-            db.session.add(rec)
-            db.session.commit()
+        attendance_mark_present(pid, tz_now.date(), tz_now)
 
     return jsonify({
         "ok": True,
-        "match": {"id": person.id, "name": person.name,
-                  "role": person.role, "class_name": person.class_name},
-        "distance": dist,
+        "match": {
+            "id":         pid,
+            "name":       person["name"],
+            "role":       person["role"],
+            "class_name": person.get("class_name"),
+        },
+        "distance":      dist,
         "within_window": within_attendance_window(tz_now),
     })
 
-from calendar import monthrange
+
+# ------------------ API: Live registration ------------------
+
+@app.route("/api/register_live", methods=["POST"])
+@login_required
+def api_register_live():
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"ok": False, "error": "No data provided"}), 400
+
+    name       = (data.get("name") or "").strip()
+    role       = (data.get("role") or "student").strip()
+    class_name = (data.get("class_name") or "").strip() or None
+    frames     = data.get("frames", [])
+
+    if not name:
+        return jsonify({"ok": False, "error": "Name is required"}), 400
+    if not frames:
+        return jsonify({"ok": False, "error": "No frames provided"}), 400
+    if person_find_by_name(name):
+        return jsonify({"ok": False, "error": "Name already exists"}), 409
+
+    embeddings = []
+    for frame_b64 in frames:
+        try:
+            emb = image_to_embedding(b64_to_image(frame_b64))
+            embeddings.append(emb)
+        except Exception:
+            continue
+
+    if not embeddings:
+        return jsonify({"ok": False, "error": "No face detected in any captured frame"}), 400
+
+    final_emb = average_embeddings(embeddings)
+    person_create(name, role, class_name, final_emb)
+    return jsonify({"ok": True, "name": name, "frames_used": len(embeddings)})
+
+
+# ------------------ Kiosk ------------------
+
+@app.route("/kiosk")
+def kiosk():
+    cfg = load_settings()
+    return render_template("kiosk.html",
+                           window=f"{cfg['ATTEND_START']}–{cfg['ATTEND_END']}",
+                           tz=cfg["TIMEZONE"])
+
+
+# ------------------ Monthly report ------------------
 
 @app.route("/monthly_report", methods=["GET", "POST"])
 @login_required
 def monthly_report():
     if request.method == "POST":
         class_name = request.form.get("class_name")
-        role = request.form.get("role")
-        month = int(request.form.get("month"))
-        year = int(request.form.get("year"))
+        role       = request.form.get("role")
+        month      = int(request.form.get("month"))
+        year       = int(request.form.get("year"))
 
-        num_days = monthrange(year, month)[1]
-        tz = get_tz()
+        cfg = load_settings()
+        tz  = pytz.timezone(cfg["TIMEZONE"])
         now = datetime.now(tz)
         today = now.date()
 
-        start_h, start_m = [int(x) for x in app.config["ATTEND_START"].split(":")]
-        end_h, end_m = [int(x) for x in app.config["ATTEND_END"].split(":")]
+        num_days = monthrange(year, month)[1]
+        start_h, start_m = [int(x) for x in cfg["ATTEND_START"].split(":")]
+        end_h,   end_m   = [int(x) for x in cfg["ATTEND_END"].split(":")]
         today_start = tz.localize(datetime.combine(today, time(start_h, start_m)))
-        today_end = tz.localize(datetime.combine(today, time(end_h, end_m)))
+        today_end   = tz.localize(datetime.combine(today, time(end_h,   end_m)))
 
+        all_people = person_all()
         if role == "student":
-            people = Person.query.filter_by(class_name=class_name, role="student").all()
+            people = [p for p in all_people
+                      if p["role"] == "student" and p.get("class_name") == class_name]
         else:
-            people = Person.query.filter_by(role="staff").all()
+            people = [p for p in all_people if p["role"] == "staff"]
 
         header = ["S.No", "Name"]
         for d in range(1, num_days + 1):
-            header.append(f"{d:02d} Enter")
-            header.append(f"{d:02d} Exit")
+            header += [f"{d:02d} Enter", f"{d:02d} Exit"]
         rows = [header]
 
         for idx, p in enumerate(people, start=1):
-            row = [idx, p.name]
+            pid = str(p["_id"])
+            row = [idx, p["name"]]
             for d in range(1, num_days + 1):
                 dt = date(year, month, d)
-                enter_time, exit_time = "", ""
+                enter_time = exit_time = ""
 
                 if dt < today:
                     mark_absent_for_day(dt)
-                    recs = (
-                        Attendance.query.filter_by(person_id=p.id, date=dt, status="present")
-                        .order_by(Attendance.timestamp.asc())
-                        .all()
-                    )
+                    recs = attendance_for_person_date(pid, dt, "present")
                     if recs:
-                        enter_time = recs[0].timestamp.astimezone(tz).strftime("%H:%M:%S")
-                        exit_time = recs[-1].timestamp.astimezone(tz).strftime("%H:%M:%S")
+                        enter_time = recs[0]["timestamp"].astimezone(tz).strftime("%H:%M:%S")
+                        exit_time  = recs[-1]["timestamp"].astimezone(tz).strftime("%H:%M:%S")
                     else:
                         enter_time = exit_time = "Absent"
 
                 elif dt == today:
                     if now < today_start:
-                        enter_time = exit_time = ""
+                        pass
                     elif today_start <= now <= today_end:
-                        recs = (
-                            Attendance.query.filter_by(person_id=p.id, date=dt, status="present")
-                            .order_by(Attendance.timestamp.asc())
-                            .all()
-                        )
+                        recs = attendance_for_person_date(pid, dt, "present")
                         if recs:
-                            enter_time = recs[0].timestamp.astimezone(tz).strftime("%H:%M:%S")
-                            exit_time = recs[-1].timestamp.astimezone(tz).strftime("%H:%M:%S")
-                        else:
-                            enter_time = exit_time = ""
+                            enter_time = recs[0]["timestamp"].astimezone(tz).strftime("%H:%M:%S")
+                            exit_time  = recs[-1]["timestamp"].astimezone(tz).strftime("%H:%M:%S")
                     else:
                         mark_absent_for_day(dt)
-                        recs = (
-                            Attendance.query.filter_by(person_id=p.id, date=dt, status="present")
-                            .order_by(Attendance.timestamp.asc())
-                            .all()
-                        )
+                        recs = attendance_for_person_date(pid, dt, "present")
                         if recs:
-                            enter_time = recs[0].timestamp.astimezone(tz).strftime("%H:%M:%S")
-                            exit_time = recs[-1].timestamp.astimezone(tz).strftime("%H:%M:%S")
+                            enter_time = recs[0]["timestamp"].astimezone(tz).strftime("%H:%M:%S")
+                            exit_time  = recs[-1]["timestamp"].astimezone(tz).strftime("%H:%M:%S")
                         else:
                             enter_time = exit_time = "Absent"
-                else:
-                    enter_time = exit_time = ""
-                row.extend([enter_time, exit_time])
+
+                row += [enter_time, exit_time]
             rows.append(row)
 
         mem = io.StringIO()
-        writer = csv.writer(mem)
-        writer.writerows(rows)
+        csv.writer(mem).writerows(rows)
         mem.seek(0)
-
         filename = (
             f"attendance_{role}_{class_name}_{year}-{month:02d}.csv"
             if role == "student"
             else f"attendance_staff_{year}-{month:02d}.csv"
         )
-
         return send_file(
             io.BytesIO(mem.getvalue().encode("utf-8")),
             as_attachment=True,
@@ -280,22 +359,19 @@ def monthly_report():
             mimetype="text/csv",
         )
 
-    classes = db.session.query(Person.class_name).distinct().all()
     return render_template(
         "monthly_report.html",
-        classes=[c[0] for c in classes if c[0]],
+        classes=person_distinct_classes(),
         current_year=datetime.now().year,
     )
 
-@app.route("/kiosk")
-def kiosk():
-    return render_template("kiosk.html",
-                           window=f"{app.config['ATTEND_START']}–{app.config['ATTEND_END']}",
-                           tz=app.config['TIMEZONE'])
+
+# ------------------ Health ------------------
 
 @app.route("/health")
 def health():
     return {"ok": True}
 
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8000)), debug=True)

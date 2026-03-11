@@ -292,6 +292,53 @@
         transition: all 0.3s ease;
       }
 
+      /* Input method tabs */
+      .input-method-tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+      }
+
+      .input-tab-btn {
+        flex: 1;
+        padding: 0.5rem 1rem;
+        border: 2px solid rgba(99, 102, 241, 0.3);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--dark-color);
+        font-weight: 600;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .input-tab-btn.active {
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+        border-color: transparent;
+        color: white;
+      }
+
+      .input-tab-btn:not(.active):hover {
+        border-color: var(--primary-color);
+        color: var(--primary-color);
+      }
+
+      .live-video-wrap {
+        position: relative;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #000;
+        aspect-ratio: 4/3;
+        max-height: 260px;
+        margin-bottom: 0.75rem;
+      }
+
+      #regVideo {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
       /* Custom scrollbar */
       ::-webkit-scrollbar {
         width: 8px;
@@ -373,6 +420,7 @@
                 <i class="fas fa-user-plus me-2 text-primary"></i>Add New Person
               </h5>
               <form method="post" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="add_person">
                 <div class="mb-3">
                   <label class="form-label">
                     <i class="fas fa-lock"></i>Admin PIN
@@ -406,17 +454,58 @@
                 
                 <div class="mb-4">
                   <label class="form-label">
-                    <i class="fas fa-camera"></i>Face Image
+                    <i class="fas fa-camera"></i>Face Input
                   </label>
-                  <div class="file-input-wrapper">
-                    <input type="file" name="image" accept="image/*" required id="imageInput">
-                    <label for="imageInput" class="file-input-label">
-                      <i class="fas fa-cloud-upload-alt file-input-icon"></i>
-                      <div>
-                        <strong>Click to upload face image</strong>
-                        <br><small class="text-muted">Supported formats: JPG, PNG, GIF</small>
+                  <!-- Tab switcher -->
+                  <div class="input-method-tabs">
+                    <button type="button" class="input-tab-btn active" id="tabUpload"
+                            onclick="switchInputTab('upload')">
+                      <i class="fas fa-upload me-1"></i>Upload Image
+                    </button>
+                    <button type="button" class="input-tab-btn" id="tabLive"
+                            onclick="switchInputTab('live')">
+                      <i class="fas fa-video me-1"></i>Live Capture
+                    </button>
+                  </div>
+
+                  <!-- Upload panel -->
+                  <div id="uploadPanel">
+                    <div class="file-input-wrapper">
+                      <input type="file" name="image" accept="image/*" id="imageInput">
+                      <label for="imageInput" class="file-input-label">
+                        <i class="fas fa-cloud-upload-alt file-input-icon"></i>
+                        <div>
+                          <strong>Click to upload face image</strong>
+                          <br><small class="text-muted">Supported formats: JPG, PNG, GIF</small>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <!-- Live capture panel -->
+                  <div id="livePanel" style="display:none">
+                    <div class="live-video-wrap">
+                      <video id="regVideo" autoplay playsinline muted></video>
+                    </div>
+                    <canvas id="regCanvas" style="display:none"></canvas>
+                    <div id="capProgressBar" style="display:none; margin-bottom:0.75rem;">
+                      <div class="progress" style="height:8px; border-radius:4px;">
+                        <div id="capProgressFill" class="progress-bar bg-success"
+                             style="width:0%; transition:width 0.1s;"></div>
                       </div>
-                    </label>
+                      <small id="capProgressText" class="text-muted mt-1 d-block">Capturing… 0 / 30</small>
+                    </div>
+                    <div class="d-flex gap-2 mb-2">
+                      <button type="button" class="btn btn-secondary flex-grow-1"
+                              id="regCamBtn" onclick="toggleRegCamera()">
+                        <i class="fas fa-play me-1"></i>Start Camera
+                      </button>
+                      <button type="button" class="btn btn-success flex-grow-1"
+                              id="captureBtn" onclick="startFrameCapture()" disabled>
+                        <i class="fas fa-camera me-1"></i>Capture (30 frames)
+                      </button>
+                    </div>
+                    <div id="capStatus"></div>
                   </div>
                 </div>
                 
@@ -456,10 +545,10 @@
                       {% for p in people %}
                         <tr>
                           <td class="fw-bold text-primary">{{ loop.index }}</td>
-                          <td class="fw-medium">{{ p.name }}</td>
+                          <td class="fw-medium">{{ p['name'] }}</td>
                           <td>
-                            <span class="badge badge-{{ p.role }}">
-                              {% if p.role == 'student' %}
+                            <span class="badge badge-{{ p['role'] }}">
+                              {% if p['role'] == 'student' %}
                                 <i class="fas fa-graduation-cap me-1"></i>Student
                               {% else %}
                                 <i class="fas fa-briefcase me-1"></i>Staff
@@ -467,7 +556,7 @@
                             </span>
                           </td>
                           <td class="d-none d-md-table-cell text-muted">
-                            {{ p.class_name or '-' }}
+                            {{ p['class_name'] or '-' }}
                           </td>
                         </tr>
                       {% endfor %}
@@ -514,41 +603,231 @@
           </div>
         </div>
       </div>
+
+      <!-- ═══════════════ Settings Section ═══════════════ -->
+      <div class="row g-4 mt-1">
+        <div class="col-12">
+          <div class="card-custom">
+            <div class="form-container">
+              <h5 class="d-flex align-items-center mb-4">
+                <i class="fas fa-sliders-h me-2 text-primary"></i>Attendance Settings
+              </h5>
+              <form method="post">
+                <input type="hidden" name="action" value="save_settings">
+                <div class="row g-3">
+                  <div class="col-md-4">
+                    <label class="form-label">
+                      <i class="fas fa-globe me-1"></i>Timezone
+                    </label>
+                    <input class="form-control" type="text" name="timezone"
+                           value="{{ settings['TIMEZONE'] }}"
+                           placeholder="e.g. Asia/Kolkata" required>
+                    <small class="text-muted">IANA timezone name</small>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label">
+                      <i class="fas fa-play-circle me-1"></i>Attendance Start
+                    </label>
+                    <input class="form-control" type="time" name="attend_start"
+                           value="{{ settings['ATTEND_START'] }}" required>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label">
+                      <i class="fas fa-stop-circle me-1"></i>Attendance End
+                    </label>
+                    <input class="form-control" type="time" name="attend_end"
+                           value="{{ settings['ATTEND_END'] }}" required>
+                  </div>
+                </div>
+                <div class="mt-3">
+                  <button class="btn btn-primary" type="submit">
+                    <i class="fas fa-save me-2"></i>Save Settings
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-      // File input enhancement
-      document.getElementById('imageInput').addEventListener('change', function(e) {
-        const label = document.querySelector('.file-input-label');
-        const fileName = e.target.files[0]?.name;
-        if (fileName) {
+      // ──────────────────────────────────────────────
+      // Input-method tab switching
+      // ──────────────────────────────────────────────
+      let activeInputTab = 'upload';
+
+      function switchInputTab(tab) {
+        activeInputTab = tab;
+        const isUpload = tab === 'upload';
+        document.getElementById('uploadPanel').style.display = isUpload ? 'block' : 'none';
+        document.getElementById('livePanel').style.display  = isUpload ? 'none'  : 'block';
+        document.getElementById('tabUpload').classList.toggle('active',  isUpload);
+        document.getElementById('tabLive').classList.toggle('active',   !isUpload);
+        // Only enforce HTML required on the file input in upload mode
+        const imgInput = document.getElementById('imageInput');
+        isUpload ? imgInput.setAttribute('required', '') : imgInput.removeAttribute('required');
+        if (!isUpload && regStream === null) {
+          // offer to start camera automatically when switching to live tab
+        }
+      }
+
+      // ──────────────────────────────────────────────
+      // Live registration camera
+      // ──────────────────────────────────────────────
+      let regStream = null;
+      let regCameraOn = false;
+
+      async function toggleRegCamera() {
+        if (!regCameraOn) {
+          try {
+            regStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+            document.getElementById('regVideo').srcObject = regStream;
+            regCameraOn = true;
+            document.getElementById('regCamBtn').innerHTML = '<i class="fas fa-stop me-1"></i>Stop Camera';
+            document.getElementById('regCamBtn').classList.replace('btn-secondary', 'btn-danger');
+            document.getElementById('captureBtn').disabled = false;
+          } catch (e) {
+            document.getElementById('capStatus').innerHTML =
+              `<div class="alert alert-danger"><i class="fas fa-exclamation-circle me-1"></i>Camera error: ${e.message}</div>`;
+          }
+        } else {
+          stopRegCamera();
+        }
+      }
+
+      function stopRegCamera() {
+        if (regStream) { regStream.getTracks().forEach(t => t.stop()); regStream = null; }
+        document.getElementById('regVideo').srcObject = null;
+        regCameraOn = false;
+        document.getElementById('regCamBtn').innerHTML = '<i class="fas fa-play me-1"></i>Start Camera';
+        document.getElementById('regCamBtn').classList.replace('btn-danger', 'btn-secondary');
+        document.getElementById('captureBtn').disabled = true;
+      }
+
+      // ──────────────────────────────────────────────
+      // Frame capture + live register
+      // ──────────────────────────────────────────────
+      function startFrameCapture() {
+        const regVideo    = document.getElementById('regVideo');
+        const regCanvas   = document.getElementById('regCanvas');
+        const captureBtn  = document.getElementById('captureBtn');
+        const progressBar = document.getElementById('capProgressBar');
+        const progressFill= document.getElementById('capProgressFill');
+        const progressText= document.getElementById('capProgressText');
+
+        if (!regCameraOn || !regVideo.videoWidth) {
+          document.getElementById('capStatus').innerHTML =
+            '<div class="alert alert-warning">Start the camera first.</div>';
+          return;
+        }
+
+        const capturedFrames = [];
+        captureBtn.disabled = true;
+        progressBar.style.display = 'block';
+        progressFill.style.width = '0%';
+        const TOTAL = 30;
+        let count = 0;
+
+        const interval = setInterval(() => {
+          regCanvas.width  = regVideo.videoWidth;
+          regCanvas.height = regVideo.videoHeight;
+          regCanvas.getContext('2d').drawImage(regVideo, 0, 0);
+          capturedFrames.push(regCanvas.toDataURL('image/jpeg', 0.8));
+          count++;
+          progressFill.style.width = Math.round(count / TOTAL * 100) + '%';
+          progressText.textContent = `Capturing\u2026 ${count} / ${TOTAL}`;
+          if (count >= TOTAL) {
+            clearInterval(interval);
+            progressText.textContent = `Captured ${TOTAL} frames \u2014 processing\u2026`;
+            submitLiveRegister(capturedFrames);
+          }
+        }, 100); // 10 fps → 3 seconds total
+      }
+
+      async function submitLiveRegister(frames) {
+        const name       = document.querySelector('input[name=name]').value.trim();
+        const role       = document.querySelector('select[name=role]').value;
+        const class_name = document.querySelector('input[name=class_name]').value.trim();
+        const statusDiv  = document.getElementById('capStatus');
+        const captureBtn = document.getElementById('captureBtn');
+
+        if (!name) {
+          statusDiv.innerHTML = '<div class="alert alert-danger">Please fill in the Name field.</div>';
+          captureBtn.disabled = false;
+          return;
+        }
+
+        try {
+          const res = await fetch('/api/register_live', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, role, class_name, frames })
+          });
+          const j = await res.json();
+          if (j.ok) {
+            statusDiv.innerHTML =
+              `<div class="alert alert-success"><i class="fas fa-check-circle me-1"></i>
+               <strong>${j.name}</strong> registered using ${j.frames_used} frame(s). Reloading\u2026</div>`;
+            stopRegCamera();
+            setTimeout(() => location.reload(), 2000);
+          } else {
+            statusDiv.innerHTML =
+              `<div class="alert alert-danger"><i class="fas fa-exclamation-circle me-1"></i>${j.error}</div>`;
+            captureBtn.disabled = false;
+          }
+        } catch (err) {
+          statusDiv.innerHTML =
+            `<div class="alert alert-danger">Request failed: ${err.message}</div>`;
+          captureBtn.disabled = false;
+        }
+      }
+
+      // ──────────────────────────────────────────────
+      // Form submit guard (upload mode)
+      // ──────────────────────────────────────────────
+      const mainForm = document.querySelector('form');
+      mainForm.addEventListener('submit', function (e) {
+        if (activeInputTab === 'live') {
+          // Live submit is handled by JS, not the form
+          e.preventDefault();
+          startFrameCapture();
+          return;
+        }
+        const imgInput = document.getElementById('imageInput');
+        if (!imgInput.files || !imgInput.files.length) {
+          e.preventDefault();
+          imgInput.focus();
+          document.getElementById('capStatus').innerHTML =
+            '<div class="alert alert-danger">Please choose a face image to upload.</div>';
+          return;
+        }
+        const submitBtn = mainForm.querySelector('button[type="submit"]');
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Adding Person\u2026';
+        submitBtn.disabled = true;
+      });
+
+      // ──────────────────────────────────────────────
+      // File input preview
+      // ──────────────────────────────────────────────
+      document.getElementById('imageInput').addEventListener('change', function (e) {
+        const file = e.target.files[0];
+        if (file) {
+          const label = document.querySelector('.file-input-label');
           label.innerHTML = `
             <i class="fas fa-check-circle file-input-icon text-success"></i>
-            <div>
-              <strong>${fileName}</strong>
-              <br><small class="text-muted">Click to change image</small>
-            </div>
+            <div><strong>${file.name}</strong><br>
+            <small class="text-muted">${(file.size / 1024).toFixed(1)} KB \u2014 click to change</small></div>
           `;
         }
       });
 
-      // Add smooth scroll behavior
-      document.documentElement.style.scrollBehavior = 'smooth';
-
-      // Enhanced form validation feedback
-      const form = document.querySelector('form');
-      form.addEventListener('submit', function(e) {
-        const submitBtn = form.querySelector('button[type="submit"]');
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Adding Person...';
-        submitBtn.disabled = true;
-      });
-
-      // Add loading states and better UX
+      // Nav-link loading feedback
       document.querySelectorAll('.nav-link').forEach(link => {
-        link.addEventListener('click', function(e) {
+        link.addEventListener('click', function () {
           if (this.href && !this.href.includes('#')) {
-            this.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Loading...';
+            this.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Loading\u2026';
           }
         });
       });

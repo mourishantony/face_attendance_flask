@@ -347,6 +347,17 @@
         #canvas {
             display: none;
         }
+
+        .btn-stop {
+            background: var(--danger-gradient);
+            color: white;
+        }
+
+        .btn-stop:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(252, 70, 107, 0.4);
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -377,7 +388,7 @@
             <div class="kiosk-title">
                 <i class="fas fa-user-check me-3"></i>Face Recognition Check-in
             </div>
-            <div class="kiosk-subtitle">Position your face in the frame and click scan</div>
+            <div class="kiosk-subtitle">Position your face in the frame — scanning happens automatically</div>
             <div class="status-indicator">
                 <i class="fas fa-clock pulse-indicator"></i>
                 <span>Attendance Window: <strong>5:00 PM - 9:00 PM</strong> (IST)</span>
@@ -399,10 +410,6 @@
                     <i class="fas fa-play"></i>
                     <span>Start Camera</span>
                 </button>
-                <button id="snapBtn" class="control-btn btn-scan" disabled>
-                    <i class="fas fa-camera"></i>
-                    <span>Scan Face</span>
-                </button>
             </div>
         </div>
 
@@ -415,60 +422,78 @@
     <script>
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
-        const snapBtn = document.getElementById('snapBtn');
         const startBtn = document.getElementById('startBtn');
         const resultSection = document.getElementById('resultSection');
         const faceFrame = document.getElementById('faceFrame');
         const cameraStatus = document.getElementById('cameraStatus');
-        
+
         let isScanning = false;
         let stream = null;
+        let cameraOn = false;
+        let autoScanTimer = null;
 
         function updateCameraStatus(status, icon = 'fas fa-camera') {
             cameraStatus.innerHTML = `<i class="${icon}"></i><span>${status}</span>`;
         }
 
+        // Single click handler — toggles start / stop
+        startBtn.addEventListener('click', () => {
+            if (!cameraOn) startCamera(); else stopCamera();
+        });
+
         async function startCamera() {
             try {
                 updateCameraStatus('Initializing...', 'fas fa-spinner fa-spin');
-                
-                // Request camera with high quality settings
                 const constraints = {
-                    video: {
-                        facingMode: "user",
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    },
+                    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
                     audio: false
                 };
-                
                 stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
-                
                 video.onloadedmetadata = () => {
-                    updateCameraStatus('Camera Active', 'fas fa-video text-success');
-                    snapBtn.disabled = false;
+                    cameraOn = true;
+                    updateCameraStatus('Auto-Scanning...', 'fas fa-video text-success');
                     startBtn.innerHTML = '<i class="fas fa-stop"></i><span>Stop Camera</span>';
-                    startBtn.onclick = stopCamera;
+                    startBtn.classList.remove('btn-start');
+                    startBtn.classList.add('btn-stop');
+                    scheduleNextScan(800);
                 };
-                
             } catch (e) {
                 console.error('Camera error:', e);
-                showResult('error', 'Camera Error', `Unable to access camera: ${e.message}`, 'Please check camera permissions and try again.');
+                showResult('error', 'Camera Error', `Unable to access camera: ${e.message}`, 'Please check camera permissions.');
                 updateCameraStatus('Camera Error', 'fas fa-exclamation-triangle text-danger');
             }
         }
 
         function stopCamera() {
+            cameraOn = false;
+            clearAutoScan();
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
                 stream = null;
             }
             video.srcObject = null;
-            snapBtn.disabled = true;
+            isScanning = false;
+            faceFrame.classList.remove('scanning');
             updateCameraStatus('Camera Stopped', 'fas fa-camera-slash text-warning');
             startBtn.innerHTML = '<i class="fas fa-play"></i><span>Start Camera</span>';
-            startBtn.onclick = startCamera;
+            startBtn.classList.remove('btn-stop');
+            startBtn.classList.add('btn-start');
+        }
+
+        function scheduleNextScan(delay) {
+            clearAutoScan();
+            if (cameraOn) autoScanTimer = setTimeout(runAutoScan, delay);
+        }
+
+        function clearAutoScan() {
+            if (autoScanTimer) { clearTimeout(autoScanTimer); autoScanTimer = null; }
+        }
+
+        async function runAutoScan() {
+            if (!cameraOn || isScanning) return;
+            const delay = await scanFace();
+            scheduleNextScan(delay);
         }
 
         function showResult(type, title, message, details = '') {
@@ -524,156 +549,74 @@
             }
         }
 
-        function showScanningAnimation() {
-            const scanningCard = document.createElement('div');
-            scanningCard.className = 'result-card scanning-animation show';
-            scanningCard.innerHTML = `
-                <div class="spinner"></div>
-                <div class="result-name">Scanning Face...</div>
-                <div class="result-details">Please hold still while we identify you</div>
-            `;
-            
-            resultSection.innerHTML = '';
-            resultSection.appendChild(scanningCard);
-            
-            faceFrame.classList.add('scanning');
-        }
-
+        // Returns delay ms before next auto-scan attempt
         async function scanFace() {
-            if (isScanning || !video.videoWidth || !video.videoHeight) {
-                if (!video.videoWidth) {
-                    showResult('warning', 'Camera Not Ready', 'Please start the camera first', '');
-                }
-                return;
-            }
+            if (!video.videoWidth || !video.videoHeight) return 1000;
 
             isScanning = true;
-            snapBtn.disabled = true;
-            snapBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Scanning...</span>';
-
-            // Show scanning animation
-            showScanningAnimation();
+            faceFrame.classList.add('scanning');
 
             try {
-                // Capture image
-                const w = video.videoWidth;
-                const h = video.videoHeight;
-                canvas.width = w;
-                canvas.height = h;
-                
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(video, 0, 0, w, h);
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
                 const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
 
-                // Simulate API call (replace with actual endpoint)
                 const response = await fetch('/api/recognize', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ image_b64: dataUrl })
                 });
-
                 const result = await response.json();
-                
                 faceFrame.classList.remove('scanning');
-                
+
                 if (!result.ok) {
-                    showResult('error', 'Recognition Failed', result.error || 'Unknown error occurred', 'Please try again');
-                    return;
+                    // Face not detected — scan again quickly without showing an error card
+                    return 1200;
                 }
 
                 if (!result.match) {
-                    showResult('warning', 'No Match Found', 'Face not recognized in the system', 'Please ensure you are registered');
-                    return;
+                    showResult('warning', 'No Match Found', 'Face not recognised in the system', 'Please ensure you are registered');
+                    return 3000;
                 }
 
-                // Success case
                 const { name, role, class_name } = result.match;
-                const withinWindow = result.within_window;
-                
-                if (withinWindow) {
-                    showResult('success', name, `${role}${class_name ? ` - ${class_name}` : ''}`, 'Attendance Marked Successfully');
-                    
-                    // Add success sound effect simulation
+                if (result.within_window) {
+                    showResult('success', name, `${role}${class_name ? ' \u2013 ' + class_name : ''}`, 'Attendance Marked \u2713');
+                    updateCameraStatus('\u2713 Recognised', 'fas fa-check-circle text-success');
                     setTimeout(() => {
-                        // Flash success color
-                        faceFrame.style.borderColor = '#00f2fe';
-                        faceFrame.style.boxShadow = '0 0 20px rgba(0, 242, 254, 0.6)';
-                        setTimeout(() => {
-                            faceFrame.style.borderColor = 'rgba(255, 255, 255, 0.8)';
-                            faceFrame.style.boxShadow = '0 0 0 2px rgba(0, 0, 0, 0.3)';
-                        }, 1000);
-                    }, 500);
+                        if (cameraOn) updateCameraStatus('Auto-Scanning...', 'fas fa-video text-success');
+                    }, 3000);
                 } else {
-                    showResult('warning', name, `${role}${class_name ? ` - ${class_name}` : ''}`, 'Outside Attendance Window');
+                    showResult('warning', name, `${role}${class_name ? ' \u2013 ' + class_name : ''}`, 'Outside Attendance Window');
                 }
+                // Long pause after a recognition to prevent immediate duplicate
+                return 7000;
 
-            } catch (error) {
-                console.error('Scan error:', error);
+            } catch (err) {
+                console.error('Scan error:', err);
                 faceFrame.classList.remove('scanning');
-                showResult('error', 'Connection Error', 'Unable to connect to server', 'Please check your connection and try again');
+                return 2000;
             } finally {
                 isScanning = false;
-                snapBtn.disabled = false;
-                snapBtn.innerHTML = '<i class="fas fa-camera"></i><span>Scan Face</span>';
             }
         }
 
-        // Event listeners
-        startBtn.addEventListener('click', startCamera);
-        snapBtn.addEventListener('click', scanFace);
-
-        // Keyboard shortcuts
+        // Keyboard: Enter to start / stop camera
         document.addEventListener('keydown', (e) => {
-            if (e.code === 'Space' && !snapBtn.disabled) {
+            if (e.code === 'Enter') {
                 e.preventDefault();
-                scanFace();
-            }
-            if (e.code === 'Enter' && startBtn.onclick === startCamera) {
-                e.preventDefault();
-                startCamera();
+                if (!cameraOn) startCamera(); else stopCamera();
             }
         });
 
-        // Auto-start camera on page load (with user permission)
+        // Tap the video to start camera (convenience on mobile)
+        video.addEventListener('click', () => { if (!cameraOn) startCamera(); });
+
         window.addEventListener('load', () => {
-            // Show welcome message
             setTimeout(() => {
-                showResult('info', 'Welcome to Face Recognition', 'Click "Start Camera" to begin attendance check-in', 'Press SPACE to scan after starting camera');
-            }, 500);
-        });
-
-        // Handle camera permissions
-        navigator.permissions?.query({ name: 'camera' }).then((permissionStatus) => {
-            if (permissionStatus.state === 'granted') {
-                // Auto-start if permission already granted
-                // startCamera();
-            }
-        });
-
-        // Handle page visibility changes
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden && stream) {
-                // Optionally pause when tab is not visible
-                console.log('Tab hidden - camera still active');
-            }
-        });
-
-        // Add touch support for mobile devices
-        let touchStartY = 0;
-        video.addEventListener('touchstart', (e) => {
-            touchStartY = e.touches[0].clientY;
-        });
-
-        video.addEventListener('touchend', (e) => {
-            const touchEndY = e.changedTouches[0].clientY;
-            const diff = touchStartY - touchEndY;
-            
-            // Swipe up to scan
-            if (diff > 50 && !snapBtn.disabled) {
-                scanFace();
-            }
+                showResult('info', 'Welcome', 'Click "Start Camera" to begin — faces are scanned automatically', '');
+            }, 400);
         });
     </script>
 </body>
