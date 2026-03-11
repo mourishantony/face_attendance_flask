@@ -509,7 +509,7 @@
                   </div>
                 </div>
                 
-                <button class="btn btn-primary w-100" type="submit">
+                <button class="btn btn-primary w-100" type="submit" id="addPersonBtn">
                   <i class="fas fa-plus me-2"></i>Add Person
                 </button>
               </form>
@@ -668,9 +668,8 @@
         // Only enforce HTML required on the file input in upload mode
         const imgInput = document.getElementById('imageInput');
         isUpload ? imgInput.setAttribute('required', '') : imgInput.removeAttribute('required');
-        if (!isUpload && regStream === null) {
-          // offer to start camera automatically when switching to live tab
-        }
+        // In live mode the capture button handles submission — hide the Add Person button
+        document.getElementById('addPersonBtn').style.display = isUpload ? 'block' : 'none';
       }
 
       // ──────────────────────────────────────────────
@@ -790,9 +789,8 @@
       const mainForm = document.querySelector('form');
       mainForm.addEventListener('submit', function (e) {
         if (activeInputTab === 'live') {
-          // Live submit is handled by JS, not the form
+          // Live submit is handled by the capture button — block accidental form submit
           e.preventDefault();
-          startFrameCapture();
           return;
         }
         const imgInput = document.getElementById('imageInput');
